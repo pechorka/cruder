@@ -40,6 +40,7 @@ func echoHandler(ctx context.Context, req request) (response, error) {
 
 type getEchoRequest struct {
 	Name fullName `query:"name"`
+	Age  int      `header:"age"`
 }
 
 type fullName struct {
@@ -50,6 +51,7 @@ type fullName struct {
 
 type getEchoResponse struct {
 	Name string `json:"name"`
+	Age  int    `json:"age"`
 }
 
 // expected request:
@@ -62,5 +64,6 @@ func getEchoHandler(ctx context.Context, req getEchoRequest) (getEchoResponse, e
 	}
 	return getEchoResponse{
 		Name: name,
+		Age:  req.Age,
 	}, nil
 }

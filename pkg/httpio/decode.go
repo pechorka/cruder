@@ -93,8 +93,13 @@ func decode(in *decodeIn, v reflect.Value, fullName []byte) error {
 			if !ok {
 				continue
 			}
+			if fieldKind == reflect.Pointer && value == "" {
+				// optional empty value is ignored
+				continue
+			}
 
-			if err := setField(v.Field(i), value); err != nil {
+			// TODO: pass full name to setField
+			if err := setField(v.Field(i), bytesString(name), value); err != nil {
 				return err
 			}
 		}
@@ -178,12 +183,12 @@ func getValue(in *decodeIn, name []byte, tagType tagType) (string, bool) {
 	}
 }
 
-func setField(v reflect.Value, value string) error {
+func setField(v reflect.Value, name, value string) error {
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			v.Set(reflect.New(v.Type().Elem()))
 		}
-		return setField(v.Elem(), value)
+		return setField(v.Elem(), name, value)
 	}
 
 	switch v.Kind() {
@@ -192,19 +197,19 @@ func setField(v reflect.Value, value string) error {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		intVal, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s as int: %w", name, err)
 		}
 		v.SetInt(intVal)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		uintVal, err := strconv.ParseUint(value, 10, 64)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s as uint: %w", name, err)
 		}
 		v.SetUint(uintVal)
 	case reflect.Float32, reflect.Float64:
 		floatVal, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s as float: %w", name, err)
 		}
 		v.SetFloat(floatVal)
 	case reflect.Bool:

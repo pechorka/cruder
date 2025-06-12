@@ -235,7 +235,7 @@ func (g *Generator) RegisterHandler(info HandlerInfo) {
 	g.openapi.Paths[info.Path] = pathItem
 }
 
-// extractAllParameters extracts query, path, and cookie parameters from a struct type
+// extractAllParameters extracts query, path, header, and cookie parameters from a struct type
 func (g *Generator) extractAllParameters(t reflect.Type, prefix string) []Parameter {
 	var params []Parameter
 
@@ -256,9 +256,10 @@ func (g *Generator) extractAllParameters(t reflect.Type, prefix string) []Parame
 			continue
 		}
 
-		// Check for query, path, and cookie tags
+		// Check for query, path, header, and cookie tags
 		queryTag := field.Tag.Get("query")
 		pathTag := field.Tag.Get("path")
+		headerTag := field.Tag.Get("header")
 		cookieTag := field.Tag.Get("cookie")
 
 		var paramName, paramIn string
@@ -271,6 +272,10 @@ func (g *Generator) extractAllParameters(t reflect.Type, prefix string) []Parame
 		} else if pathTag != "" {
 			paramName = pathTag
 			paramIn = "path"
+			hasParam = true
+		} else if headerTag != "" {
+			paramName = headerTag
+			paramIn = "header"
 			hasParam = true
 		} else if cookieTag != "" {
 			paramName = cookieTag
@@ -328,6 +333,8 @@ func (g *Generator) isFieldRequiredForParam(field reflect.StructField, paramIn s
 	switch paramIn {
 	case "query":
 		tag = field.Tag.Get("query")
+	case "header":
+		tag = field.Tag.Get("header")
 	case "cookie":
 		tag = field.Tag.Get("cookie")
 	}
@@ -342,9 +349,9 @@ func (g *Generator) isFieldRequiredForParam(field reflect.StructField, paramIn s
 		return false
 	}
 
-	// Default to required for non-pointer types (except cookies which are typically optional)
-	if paramIn == "cookie" {
-		return false // cookies are optional by default
+	// Default to required for non-pointer types (except cookies and headers which are typically optional)
+	if paramIn == "cookie" || paramIn == "header" {
+		return false // cookies and headers are optional by default
 	}
 
 	return true
