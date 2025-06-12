@@ -19,7 +19,7 @@ func main() {
 func run() error {
 	mux := cruder.NewMux()
 	cruder.RegisterHandler(mux, "POST /echo", echoHandler)
-	cruder.RegisterHandler(mux, "GET /echo", getEchoHandler)
+	cruder.RegisterHandler(mux, `GET /echo/{name_last}`, getEchoHandler)
 
 	return http.ListenAndServe(":8080", mux)
 }
@@ -44,15 +44,17 @@ type getEchoRequest struct {
 
 type fullName struct {
 	First  string  `query:"first"`
-	Last   string  `query:"last"`
-	Middle *string `query:"middle"`
+	Last   string  `path:"last"`
+	Middle *string `cookie:"middle"`
 }
 
 type getEchoResponse struct {
 	Name string `json:"name"`
 }
 
-// expected request: GET /echo?name.first=John&name.last=Doe should return "John Doe"
+// expected request:
+// GET /echo/Doe?name_first=John
+// Cookie: name_middle=Middle
 func getEchoHandler(ctx context.Context, req getEchoRequest) (getEchoResponse, error) {
 	name := req.Name.First + " " + req.Name.Last
 	if req.Name.Middle != nil {

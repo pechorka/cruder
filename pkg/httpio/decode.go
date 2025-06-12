@@ -11,7 +11,7 @@ import (
 	"unsafe"
 )
 
-const delimiter = '.'
+const delimiter = '_'
 
 var bytesPool = &sync.Pool{
 	New: func() interface{} {
@@ -136,7 +136,8 @@ func findInTag(t reflect.StructField) ([]byte, tagType, bool) {
 type pathLookuper func(r *http.Request, name string) (string, bool)
 
 func defaultPathLookuper(r *http.Request, name string) (string, bool) {
-	return "", false
+	v := r.PathValue(name)
+	return v, len(v) > 0
 }
 
 var currentPathLookuper pathLookuper = defaultPathLookuper
