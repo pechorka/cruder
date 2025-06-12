@@ -160,13 +160,29 @@ func (g *Generator) RegisterHandler(info HandlerInfo) {
 		Responses:   make(map[string]Response),
 	}
 
-	// Add query parameters if request type has query tags
+	// Extract all types of parameters if request type exists
 	if info.RequestType != nil && info.RequestType.Kind() != reflect.Invalid {
-		queryParams := g.extractQueryParameters(info.RequestType, "")
-		if len(queryParams) > 0 {
-			operation.Parameters = queryParams
-		} else {
-			// Add request body if no query parameters (for POST, PUT, etc.)
+		allParams := g.extractAllParameters(info.RequestType, "")
+
+		// Separate query parameters from path/cookie parameters
+		var queryParams []Parameter
+		var otherParams []Parameter
+
+		for _, param := range allParams {
+			if param.In == "query" {
+				queryParams = append(queryParams, param)
+			} else {
+				otherParams = append(otherParams, param)
+			}
+		}
+
+		// Add all parameters to the operation
+		if len(allParams) > 0 {
+			operation.Parameters = allParams
+		}
+
+		// Add request body only if we have non-parameter fields or no query parameters for certain methods
+		if len(queryParams) == 0 && (strings.ToUpper(info.Method) == "POST" || strings.ToUpper(info.Method) == "PUT" || strings.ToUpper(info.Method) == "PATCH") {
 			reqSchema := g.generateSchema(info.RequestType)
 			operation.RequestBody = &RequestBody{
 				Description: "Request body",
@@ -219,8 +235,8 @@ func (g *Generator) RegisterHandler(info HandlerInfo) {
 	g.openapi.Paths[info.Path] = pathItem
 }
 
-// extractQueryParameters extracts query parameters from a struct type
-func (g *Generator) extractQueryParameters(t reflect.Type, prefix string) []Parameter {
+// extractAllParameters extracts query, path, and cookie parameters from a struct type
+func (g *Generator) extractAllParameters(t reflect.Type, prefix string) []Parameter {
 	var params []Parameter
 
 	// Handle pointers
@@ -240,27 +256,52 @@ func (g *Generator) extractQueryParameters(t reflect.Type, prefix string) []Para
 			continue
 		}
 
+		// Check for query, path, and cookie tags
 		queryTag := field.Tag.Get("query")
-		if queryTag == "" {
+		pathTag := field.Tag.Get("path")
+		cookieTag := field.Tag.Get("cookie")
+
+		var paramName, paramIn string
+		var hasParam bool
+
+		if queryTag != "" {
+			paramName = queryTag
+			paramIn = "query"
+			hasParam = true
+		} else if pathTag != "" {
+			paramName = pathTag
+			paramIn = "path"
+			hasParam = true
+		} else if cookieTag != "" {
+			paramName = cookieTag
+			paramIn = "cookie"
+			hasParam = true
+		}
+
+		if !hasParam {
+			// Check if this is a nested struct that might contain parameters
+			if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct) {
+				nestedParams := g.extractAllParameters(field.Type, prefix)
+				params = append(params, nestedParams...)
+			}
 			continue
 		}
 
 		// Build parameter name with prefix for nested structures
-		paramName := queryTag
 		if prefix != "" {
-			paramName = prefix + "." + queryTag
+			paramName = prefix + "_" + paramName
 		}
 
 		// Handle nested structs
 		if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct) {
-			nestedParams := g.extractQueryParameters(field.Type, paramName)
+			nestedParams := g.extractAllParameters(field.Type, paramName)
 			params = append(params, nestedParams...)
 		} else {
 			// Create parameter for primitive types
 			param := Parameter{
 				Name:     paramName,
-				In:       "query",
-				Required: g.isFieldRequired(field),
+				In:       paramIn,
+				Required: g.isFieldRequiredForParam(field, paramIn),
 				Schema:   g.generateSchemaForPrimitive(field.Type),
 			}
 			params = append(params, param)
@@ -270,16 +311,28 @@ func (g *Generator) extractQueryParameters(t reflect.Type, prefix string) []Para
 	return params
 }
 
-// isFieldRequired determines if a field is required based on its type and tags
-func (g *Generator) isFieldRequired(field reflect.StructField) bool {
+// isFieldRequiredForParam determines if a field is required based on its type, tags, and parameter location
+func (g *Generator) isFieldRequiredForParam(field reflect.StructField, paramIn string) bool {
+	// Path parameters are always required in OpenAPI
+	if paramIn == "path" {
+		return true
+	}
+
 	// Check if field is a pointer (optional by default)
 	if field.Type.Kind() == reflect.Ptr {
 		return false
 	}
 
-	// Check for omitempty in query tag
-	queryTag := field.Tag.Get("query")
-	if strings.Contains(queryTag, "omitempty") {
+	// Check for omitempty in the relevant tag
+	var tag string
+	switch paramIn {
+	case "query":
+		tag = field.Tag.Get("query")
+	case "cookie":
+		tag = field.Tag.Get("cookie")
+	}
+
+	if strings.Contains(tag, "omitempty") {
 		return false
 	}
 
@@ -289,7 +342,11 @@ func (g *Generator) isFieldRequired(field reflect.StructField) bool {
 		return false
 	}
 
-	// Default to required for non-pointer types
+	// Default to required for non-pointer types (except cookies which are typically optional)
+	if paramIn == "cookie" {
+		return false // cookies are optional by default
+	}
+
 	return true
 }
 
