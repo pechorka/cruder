@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/pechorka/cruder/pkg/httpio"
 	"github.com/pechorka/cruder/pkg/swaggergen"
 )
 
@@ -43,7 +44,7 @@ func RegisterHandler[Req, Resp any](mux *Mux, pattern string, hndl func(ctx cont
 
 	mux.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		var req Req
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := httpio.Unmarshal(r, &req); err != nil {
 			// TODO: allow to customize error response
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
