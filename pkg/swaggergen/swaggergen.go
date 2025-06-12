@@ -160,17 +160,23 @@ func (g *Generator) RegisterHandler(info HandlerInfo) {
 		Responses:   make(map[string]Response),
 	}
 
-	// Add request body if request type is not empty
+	// Add query parameters if request type has query tags
 	if info.RequestType != nil && info.RequestType.Kind() != reflect.Invalid {
-		reqSchema := g.generateSchema(info.RequestType)
-		operation.RequestBody = &RequestBody{
-			Description: "Request body",
-			Content: map[string]MediaType{
-				"application/json": {
-					Schema: reqSchema,
+		queryParams := g.extractQueryParameters(info.RequestType, "")
+		if len(queryParams) > 0 {
+			operation.Parameters = queryParams
+		} else {
+			// Add request body if no query parameters (for POST, PUT, etc.)
+			reqSchema := g.generateSchema(info.RequestType)
+			operation.RequestBody = &RequestBody{
+				Description: "Request body",
+				Content: map[string]MediaType{
+					"application/json": {
+						Schema: reqSchema,
+					},
 				},
-			},
-			Required: true,
+				Required: true,
+			}
 		}
 	}
 
@@ -211,6 +217,105 @@ func (g *Generator) RegisterHandler(info HandlerInfo) {
 	}
 
 	g.openapi.Paths[info.Path] = pathItem
+}
+
+// extractQueryParameters extracts query parameters from a struct type
+func (g *Generator) extractQueryParameters(t reflect.Type, prefix string) []Parameter {
+	var params []Parameter
+
+	// Handle pointers
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return params
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+
+		// Skip unexported fields
+		if !field.IsExported() {
+			continue
+		}
+
+		queryTag := field.Tag.Get("query")
+		if queryTag == "" {
+			continue
+		}
+
+		// Build parameter name with prefix for nested structures
+		paramName := queryTag
+		if prefix != "" {
+			paramName = prefix + "." + queryTag
+		}
+
+		// Handle nested structs
+		if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct) {
+			nestedParams := g.extractQueryParameters(field.Type, paramName)
+			params = append(params, nestedParams...)
+		} else {
+			// Create parameter for primitive types
+			param := Parameter{
+				Name:     paramName,
+				In:       "query",
+				Required: g.isFieldRequired(field),
+				Schema:   g.generateSchemaForPrimitive(field.Type),
+			}
+			params = append(params, param)
+		}
+	}
+
+	return params
+}
+
+// isFieldRequired determines if a field is required based on its type and tags
+func (g *Generator) isFieldRequired(field reflect.StructField) bool {
+	// Check if field is a pointer (optional by default)
+	if field.Type.Kind() == reflect.Ptr {
+		return false
+	}
+
+	// Check for omitempty in query tag
+	queryTag := field.Tag.Get("query")
+	if strings.Contains(queryTag, "omitempty") {
+		return false
+	}
+
+	// Check for omitempty in json tag as fallback
+	jsonTag := field.Tag.Get("json")
+	if strings.Contains(jsonTag, "omitempty") {
+		return false
+	}
+
+	// Default to required for non-pointer types
+	return true
+}
+
+// generateSchemaForPrimitive generates a schema for primitive types
+func (g *Generator) generateSchemaForPrimitive(t reflect.Type) *Schema {
+	// Handle pointers
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	schema := &Schema{}
+
+	switch t.Kind() {
+	case reflect.String:
+		schema.Type = "string"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		schema.Type = "integer"
+	case reflect.Float32, reflect.Float64:
+		schema.Type = "number"
+	case reflect.Bool:
+		schema.Type = "boolean"
+	default:
+		schema.Type = "string" // fallback
+	}
+
+	return schema
 }
 
 // generateSchema generates a JSON schema for a Go type

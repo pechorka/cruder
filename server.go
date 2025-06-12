@@ -67,7 +67,7 @@ func RegisterHandler[Req, Resp any](mux *Mux, pattern string, hndl func(ctx cont
 	var req Req
 	var resp Resp
 	mux.sg.RegisterHandler(swaggergen.HandlerInfo{
-		Name:         path,
+		Name:         pattern,
 		Path:         path,
 		Method:       method,
 		RequestType:  reflect.TypeOf(req),
